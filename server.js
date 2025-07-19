@@ -422,6 +422,36 @@ app.post('/api/tags', authenticateToken, async (req, res) => {
   }
 });
 
+// NEW: Edit tag route
+app.put('/api/tags/:id', authenticateToken, async (req, res) => {
+  try {
+    const { name } = req.body;
+    const tagId = req.params.id;
+
+    if (!name || name.trim().length === 0) {
+      return res.status(400).json({ error: 'Tag name is required' });
+    }
+
+    const result = await pool.query(
+      'UPDATE tags SET name = $1 WHERE id = $2 AND user_id = $3 RETURNING *',
+      [name.trim(), tagId, req.user.userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Tag not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    if (error.code === '23505') { // Unique constraint violation
+      res.status(400).json({ error: 'Tag name already exists' });
+    } else {
+      console.error('Tag update error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+});
+
 app.delete('/api/tags/:id', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
