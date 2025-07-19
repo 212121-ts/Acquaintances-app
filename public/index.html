@@ -198,7 +198,7 @@
 
         function showContacts() {
             document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-            event.target.classList.add('active');
+            document.querySelector('.nav-tab:first-child').classList.add('active');
             document.getElementById('contactsTab').classList.remove('hidden');
             document.getElementById('addTab').classList.add('hidden');
             loadContacts();
@@ -206,7 +206,7 @@
 
         function showAddContact() {
             document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-            event.target.classList.add('active');
+            document.querySelector('.nav-tab:last-child').classList.add('active');
             document.getElementById('contactsTab').classList.add('hidden');
             document.getElementById('addTab').classList.remove('hidden');
         }
