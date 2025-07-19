@@ -7,7 +7,7 @@ A mobile-first web application for managing personal connections and networking 
 - 📱 **Mobile-optimized interface** with Kindle-style dark mode
 - 👤 **Contact management** with detailed person information
 - 🏷️ **Tagging system** for organizing contacts by groups
-- 🔗 **Connection tracking** to map how people are related
+- 🔗 **Connection tracking** to how people are related
 - 🔐 **Secure authentication** with JWT tokens
 - 🎫 **License key system** for controlled access
 - 📊 **Admin dashboard** for license management
