@@ -11,13 +11,11 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Database connection
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
-// Middleware
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -33,7 +31,6 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static('public'));
 
-// Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
@@ -41,7 +38,6 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// JWT Authentication middleware
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -59,7 +55,6 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// Admin authentication middleware
 const authenticateAdmin = (req, res, next) => {
   const adminPassword = req.headers['admin-password'];
   if (adminPassword !== process.env.ADMIN_PASSWORD) {
@@ -68,7 +63,6 @@ const authenticateAdmin = (req, res, next) => {
   next();
 };
 
-// Database initialization
 async function initializeDatabase() {
   try {
     console.log('Initializing database...');
@@ -108,37 +102,6 @@ async function initializeDatabase() {
     `);
 
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS tags (
-        id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-        name VARCHAR(100) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(user_id, name)
-      )
-    `);
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS contact_tags (
-        contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
-        tag_id INTEGER REFERENCES tags(id) ON DELETE CASCADE,
-        PRIMARY KEY (contact_id, tag_id)
-      )
-    `);
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS contact_connections (
-        id SERIAL PRIMARY KEY,
-        contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
-        connected_contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
-        connection_type VARCHAR(100) DEFAULT 'introduced_by',
-        connection_notes TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(contact_id, connected_contact_id, connection_type)
-      )
-    `);
-
-    // Create default admin license key
-    await pool.query(`
       INSERT INTO license_keys (key_value, status) 
       VALUES ('DEMO-KEY-123', 'active') 
       ON CONFLICT (key_value) DO NOTHING
@@ -151,12 +114,10 @@ async function initializeDatabase() {
   }
 }
 
-// Health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// Auth routes
 app.post('/api/register', async (req, res) => {
   try {
     const { email, password, licenseKey } = req.body;
@@ -186,8 +147,8 @@ app.post('/api/register', async (req, res) => {
     const saltRounds = 12;
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
-    const result = await pool.query(
-      'INSERT INTO users (email, password_hash, license_key) VALUES ($1, $2, $3) RETURNING id',
+    await pool.query(
+      'INSERT INTO users (email, password_hash, license_key) VALUES ($1, $2, $3)',
       [email, passwordHash, licenseKey]
     );
 
@@ -240,28 +201,6 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// Admin routes
-app.post('/api/admin/license-keys', authenticateAdmin, async (req, res) => {
-  try {
-    const { quantity = 1 } = req.body;
-    const keys = [];
-
-    for (let i = 0; i < Math.min(quantity, 100); i++) {
-      const key = generateLicenseKey();
-      await pool.query(
-        'INSERT INTO license_keys (key_value) VALUES ($1)',
-        [key]
-      );
-      keys.push(key);
-    }
-
-    res.json({ keys, message: `Generated ${keys.length} license keys` });
-  } catch (error) {
-    console.error('License key generation error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
 app.get('/api/admin/license-keys', authenticateAdmin, async (req, res) => {
   try {
     const result = await pool.query(
@@ -274,41 +213,30 @@ app.get('/api/admin/license-keys', authenticateAdmin, async (req, res) => {
   }
 });
 
-// Contact routes
+app.post('/api/admin/license-keys', authenticateAdmin, async (req, res) => {
+  try {
+    const { quantity = 1 } = req.body;
+    const keys = [];
+
+    for (let i = 0; i < Math.min(quantity, 100); i++) {
+      const key = generateLicenseKey();
+      await pool.query('INSERT INTO license_keys (key_value) VALUES ($1)', [key]);
+      keys.push(key);
+    }
+
+    res.json({ keys, message: `Generated ${keys.length} license keys` });
+  } catch (error) {
+    console.error('License key generation error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.get('/api/contacts', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT 
-        c.*,
-        COALESCE(
-          JSON_AGG(
-            CASE WHEN t.name IS NOT NULL THEN t.name END
-          ) FILTER (WHERE t.name IS NOT NULL),
-          '[]'
-        ) as tags,
-        COALESCE(
-          JSON_AGG(
-            DISTINCT CASE WHEN cc.connected_contact_id IS NOT NULL THEN 
-              JSON_BUILD_OBJECT(
-                'id', connected_contact.id,
-                'name', connected_contact.name,
-                'connection_type', cc.connection_type,
-                'connection_notes', cc.connection_notes
-              )
-            END
-          ) FILTER (WHERE cc.connected_contact_id IS NOT NULL),
-          '[]'
-        ) as connections
-      FROM contacts c
-      LEFT JOIN contact_tags ct ON c.id = ct.contact_id
-      LEFT JOIN tags t ON ct.tag_id = t.id
-      LEFT JOIN contact_connections cc ON c.id = cc.contact_id
-      LEFT JOIN contacts connected_contact ON cc.connected_contact_id = connected_contact.id AND connected_contact.user_id = $1
-      WHERE c.user_id = $1
-      GROUP BY c.id
-      ORDER BY c.created_at DESC
-    `, [req.user.userId]);
-
+    const result = await pool.query(
+      'SELECT * FROM contacts WHERE user_id = $1 ORDER BY created_at DESC',
+      [req.user.userId]
+    );
     res.json(result.rows);
   } catch (error) {
     console.error('Contacts fetch error:', error);
@@ -317,43 +245,84 @@ app.get('/api/contacts', authenticateToken, async (req, res) => {
 });
 
 app.post('/api/contacts', authenticateToken, async (req, res) => {
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-
-    const { name, location, spouse, children, notes, tags, connections } = req.body;
+    const { name, location, spouse, children, notes } = req.body;
 
     if (!name || !location) {
       return res.status(400).json({ error: 'Name and location are required' });
     }
 
-    const contactResult = await client.query(
+    const result = await pool.query(
       'INSERT INTO contacts (user_id, name, location, spouse, children, notes) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
       [req.user.userId, name, location, spouse || null, children || null, notes || null]
     );
 
-    const contact = contactResult.rows[0];
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Contact creation error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
-    if (tags && tags.length > 0) {
-      for (const tagName of tags) {
-        await client.query(
-          'INSERT INTO tags (user_id, name) VALUES ($1, $2) ON CONFLICT (user_id, name) DO NOTHING',
-          [req.user.userId, tagName]
-        );
+app.delete('/api/contacts/:id', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'DELETE FROM contacts WHERE id = $1 AND user_id = $2 RETURNING id',
+      [req.params.id, req.user.userId]
+    );
 
-        const tagResult = await client.query(
-          'SELECT id FROM tags WHERE user_id = $1 AND name = $2',
-          [req.user.userId, tagName]
-        );
-
-        await client.query(
-          'INSERT INTO contact_tags (contact_id, tag_id) VALUES ($1, $2)',
-          [contact.id, tagResult.rows[0].id]
-        );
-      }
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Contact not found' });
     }
 
-    if (connections && connections.length > 0) {
-      for (const connection of connections) {
-        await client.query(
-          'INSERT INTO contact_connections (contact_id, connected_contact_id, connection_type, connection_notes) VAL
+    res.json({ message: 'Contact deleted successfully' });
+  } catch (error) {
+    console.error('Contact deletion error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+function generateLicenseKey() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = '';
+  for (let i = 0; i < 16; i++) {
+    if (i > 0 && i % 4 === 0) result += '-';
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.use('*', (req, res) => {
+  res.status(404).json({ error: 'Endpoint not found' });
+});
+
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: 'Something went wrong!' });
+});
+
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully');
+  pool.end(() => {
+    process.exit(0);
+  });
+});
+
+async function startServer() {
+  try {
+    await initializeDatabase();
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`🚀 Acquaintances app running on port ${PORT}`);
+      console.log(`📱 Environment: ${process.env.NODE_ENV || 'development'}`);
+    });
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+startServer();
