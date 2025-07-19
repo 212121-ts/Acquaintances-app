@@ -48,11 +48,21 @@
         .status-badge { padding: 4px 8px; border-radius: 12px; font-size: 12px; }
         .status-active { background: #333; color: #fff; border: 1px solid #555; }
         .status-used { background: #4d2626; color: #ccc; border: 1px solid #664040; }
-        .tag-grid { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+        .tag-grid { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; }
         .tag-item { background: #262626; border: 1px solid #404040; border-radius: 4px; padding: 12px; }
         .tag-name { color: #fff; font-size: 16px; }
+        .tag-edit { background: #404040; color: #ccc; border: 1px solid #555; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        .tag-edit:hover { background: #4d4d4d; }
         .tag-delete { background: #4d2626; color: #ccc; border: 1px solid #664040; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
         .tag-delete:hover { background: #663333; }
+        .tag-edit-form { display: none; }
+        .tag-edit-input { width: 100%; padding: 8px; border: 1px solid #555; border-radius: 4px; background: #2a2a2a; color: #fff; font-size: 14px; }
+        .tag-edit-actions { display: flex; gap: 8px; margin-top: 8px; }
+        .tag-save, .tag-cancel { padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        .tag-save { background: #333; color: #fff; border: 1px solid #555; }
+        .tag-save:hover { background: #404040; }
+        .tag-cancel { background: #4d2626; color: #ccc; border: 1px solid #664040; }
+        .tag-cancel:hover { background: #663333; }
         .tag-selector { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; max-height: 120px; overflow-y: auto; }
         .tag-checkbox { display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: #404040; border: 1px solid #555; border-radius: 16px; cursor: pointer; font-size: 12px; }
         .tag-checkbox.selected { background: #555; border-color: #777; }
@@ -616,12 +626,78 @@
 
             container.innerHTML = tags.map(tag => `
                 <div class="tag-grid">
-                    <div class="tag-item">
-                        <div class="tag-name">${tag.name}</div>
+                    <div class="tag-item" id="tag-${tag.id}">
+                        <div class="tag-name" id="tag-name-${tag.id}">${tag.name}</div>
+                        <div class="tag-edit-form" id="tag-edit-${tag.id}">
+                            <input type="text" class="tag-edit-input" id="tag-input-${tag.id}" value="${tag.name}">
+                            <div class="tag-edit-actions">
+                                <button class="tag-save" onclick="saveTagEdit(${tag.id})">Save</button>
+                                <button class="tag-cancel" onclick="cancelTagEdit(${tag.id})">Cancel</button>
+                            </div>
+                        </div>
                     </div>
+                    <button class="tag-edit" onclick="editTag(${tag.id})">Edit</button>
                     <button class="tag-delete" onclick="deleteTag(${tag.id})">Delete</button>
                 </div>
             `).join('');
+        }
+
+        function editTag(id) {
+            // Hide the display version, show the edit form
+            document.getElementById(`tag-name-${id}`).style.display = 'none';
+            document.getElementById(`tag-edit-${id}`).style.display = 'block';
+            
+            // Focus on the input field
+            document.getElementById(`tag-input-${id}`).focus();
+            document.getElementById(`tag-input-${id}`).select();
+        }
+
+        function cancelTagEdit(id) {
+            // Show the display version, hide the edit form
+            document.getElementById(`tag-name-${id}`).style.display = 'block';
+            document.getElementById(`tag-edit-${id}`).style.display = 'none';
+            
+            // Reset the input value
+            const originalTag = tags.find(tag => tag.id === id);
+            document.getElementById(`tag-input-${id}`).value = originalTag.name;
+        }
+
+        async function saveTagEdit(id) {
+            const newName = document.getElementById(`tag-input-${id}`).value.trim();
+            
+            if (!newName) {
+                alert('Tag name cannot be empty');
+                return;
+            }
+            
+            // Check if name already exists (excluding current tag)
+            const existingTag = tags.find(tag => tag.name.toLowerCase() === newName.toLowerCase() && tag.id !== id);
+            if (existingTag) {
+                alert('A tag with this name already exists');
+                return;
+            }
+            
+            try {
+                await apiCall(`/tags/${id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ name: newName })
+                });
+                
+                // Update the display
+                document.getElementById(`tag-name-${id}`).textContent = newName;
+                document.getElementById(`tag-name-${id}`).style.display = 'block';
+                document.getElementById(`tag-edit-${id}`).style.display = 'none';
+                
+                // Update local tags array
+                const tagIndex = tags.findIndex(tag => tag.id === id);
+                if (tagIndex !== -1) {
+                    tags[tagIndex].name = newName;
+                }
+                
+                alert('Tag updated successfully!');
+            } catch (error) {
+                alert('Error updating tag: ' + error.message);
+            }
         }
 
         async function deleteTag(id) {
