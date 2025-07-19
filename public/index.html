@@ -14,8 +14,8 @@
         .main-content { flex: 1; background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.5); }
         .form-group { margin-bottom: 16px; }
         label { display: block; margin-bottom: 6px; color: #ccc; font-size: 14px; }
-        input, textarea { width: 100%; padding: 12px; border: 1px solid #333; border-radius: 4px; font-size: 16px; background: #262626; color: #fff; font-family: inherit; }
-        input:focus, textarea:focus { outline: none; border-color: #555; background: #2a2a2a; }
+        input, textarea, select { width: 100%; padding: 12px; border: 1px solid #333; border-radius: 4px; font-size: 16px; background: #262626; color: #fff; font-family: inherit; }
+        input:focus, textarea:focus, select:focus { outline: none; border-color: #555; background: #2a2a2a; }
         input::placeholder, textarea::placeholder { color: #666; }
         textarea { resize: vertical; min-height: 80px; }
         .btn { width: 100%; padding: 12px; background: #333; color: #fff; border: 1px solid #555; border-radius: 4px; font-size: 16px; cursor: pointer; margin-bottom: 12px; font-family: inherit; }
@@ -33,6 +33,8 @@
         .contact-card { background: #262626; border: 1px solid #404040; border-radius: 4px; padding: 16px; margin-bottom: 12px; }
         .contact-name { font-size: 18px; color: #fff; margin-bottom: 8px; }
         .contact-location { color: #999; font-size: 14px; margin-bottom: 12px; }
+        .contact-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+        .tag { background: #404040; color: #fff; padding: 4px 8px; border-radius: 12px; font-size: 12px; border: 1px solid #555; }
         .contact-actions { display: flex; gap: 8px; margin-top: 12px; }
         .btn-small { padding: 6px 12px; font-size: 12px; border-radius: 4px; border: 1px solid #555; cursor: pointer; color: #ccc; }
         .btn-small:hover { background: #555; }
@@ -46,6 +48,15 @@
         .status-badge { padding: 4px 8px; border-radius: 12px; font-size: 12px; }
         .status-active { background: #333; color: #fff; border: 1px solid #555; }
         .status-used { background: #4d2626; color: #ccc; border: 1px solid #664040; }
+        .tag-grid { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+        .tag-item { background: #262626; border: 1px solid #404040; border-radius: 4px; padding: 12px; }
+        .tag-name { color: #fff; font-size: 16px; }
+        .tag-delete { background: #4d2626; color: #ccc; border: 1px solid #664040; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        .tag-delete:hover { background: #663333; }
+        .tag-selector { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; max-height: 120px; overflow-y: auto; }
+        .tag-checkbox { display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: #404040; border: 1px solid #555; border-radius: 16px; cursor: pointer; font-size: 12px; }
+        .tag-checkbox.selected { background: #555; border-color: #777; }
+        .tag-checkbox input { margin: 0; }
     </style>
 </head>
 <body>
@@ -131,6 +142,7 @@
                 <div class="nav-tabs">
                     <div class="nav-tab active" onclick="showContacts()">Contacts</div>
                     <div class="nav-tab" onclick="showAddContact()">Add New</div>
+                    <div class="nav-tab" onclick="showTags()">Tags</div>
                 </div>
 
                 <!-- Contacts Tab -->
@@ -164,6 +176,10 @@
                         <label>Notes</label>
                         <textarea id="contactNotes" placeholder="Additional notes..."></textarea>
                     </div>
+                    <div class="form-group">
+                        <label>Tags</label>
+                        <div id="addTagSelector" class="tag-selector"></div>
+                    </div>
                     <button class="btn" onclick="saveContact()">Save Contact</button>
                     <button class="btn btn-secondary" onclick="clearForm()">Clear Form</button>
                 </div>
@@ -191,8 +207,25 @@
                         <label>Notes</label>
                         <textarea id="editContactNotes" placeholder="Additional notes..."></textarea>
                     </div>
+                    <div class="form-group">
+                        <label>Tags</label>
+                        <div id="editTagSelector" class="tag-selector"></div>
+                    </div>
                     <button class="btn" onclick="updateContact()">Update Contact</button>
                     <button class="btn btn-secondary" onclick="cancelEdit()">Cancel</button>
+                </div>
+
+                <!-- Tags Tab -->
+                <div id="tagsTab" class="hidden">
+                    <h3>Manage Tags</h3>
+                    <div class="form-group">
+                        <label>Create New Tag</label>
+                        <input type="text" id="newTagName" placeholder="Enter tag name">
+                    </div>
+                    <button class="btn" onclick="createTag()">Create Tag</button>
+                    
+                    <h3 style="margin-top: 24px;">Your Tags</h3>
+                    <div id="tagsList"></div>
                 </div>
             </div>
         </div>
@@ -201,6 +234,7 @@
     <script>
         let authToken = localStorage.getItem('authToken') || '';
         let contacts = [];
+        let tags = [];
         let editingContactId = null;
 
         // Initialize
@@ -230,19 +264,32 @@
 
         function showContacts() {
             document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-            document.querySelector('.nav-tab:first-child').classList.add('active');
+            document.querySelector('.nav-tab:nth-child(1)').classList.add('active');
             document.getElementById('contactsTab').classList.remove('hidden');
             document.getElementById('addTab').classList.add('hidden');
             document.getElementById('editTab').classList.add('hidden');
+            document.getElementById('tagsTab').classList.add('hidden');
             loadContacts();
         }
 
         function showAddContact() {
             document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-            document.querySelector('.nav-tab:last-child').classList.add('active');
+            document.querySelector('.nav-tab:nth-child(2)').classList.add('active');
             document.getElementById('contactsTab').classList.add('hidden');
             document.getElementById('addTab').classList.remove('hidden');
             document.getElementById('editTab').classList.add('hidden');
+            document.getElementById('tagsTab').classList.add('hidden');
+            loadTags().then(() => displayTagSelector('addTagSelector', []));
+        }
+
+        function showTags() {
+            document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+            document.querySelector('.nav-tab:nth-child(3)').classList.add('active');
+            document.getElementById('contactsTab').classList.add('hidden');
+            document.getElementById('addTab').classList.add('hidden');
+            document.getElementById('editTab').classList.add('hidden');
+            document.getElementById('tagsTab').classList.remove('hidden');
+            loadTags().then(() => displayTagsList());
         }
 
         // API functions
@@ -279,6 +326,7 @@
                 hideAllScreens();
                 document.getElementById('mainApp').classList.remove('hidden');
                 loadContacts();
+                loadTags();
                 hideError('loginError');
             } catch (error) {
                 showError('loginError', error.message);
@@ -320,6 +368,7 @@
         async function autoLogin() {
             try {
                 await loadContacts();
+                await loadTags();
                 const email = localStorage.getItem('userEmail') || 'User';
                 document.getElementById('userEmail').textContent = email;
                 hideAllScreens();
@@ -361,6 +410,11 @@
                     ${contact.spouse ? `<div><strong>Partner:</strong> ${contact.spouse}</div>` : ''}
                     ${contact.children ? `<div><strong>Children:</strong> ${contact.children}</div>` : ''}
                     ${contact.notes ? `<div><strong>Notes:</strong> ${contact.notes}</div>` : ''}
+                    ${contact.tags && contact.tags.length > 0 ? `
+                        <div class="contact-tags">
+                            ${contact.tags.map(tag => `<span class="tag">${tag}</span>`).join('')}
+                        </div>
+                    ` : ''}
                     <div class="contact-actions">
                         <button class="btn-small btn-edit" onclick="editContact(${contact.id})">Edit</button>
                         <button class="btn-small btn-delete" onclick="deleteContact(${contact.id})">Delete</button>
@@ -375,6 +429,7 @@
             const spouse = document.getElementById('contactSpouse').value;
             const children = document.getElementById('contactChildren').value;
             const notes = document.getElementById('contactNotes').value;
+            const selectedTags = getSelectedTags('addTagSelector');
             
             if (!name || !location) {
                 alert('Please fill in required fields (Name and Location)');
@@ -384,7 +439,7 @@
             try {
                 await apiCall('/contacts', {
                     method: 'POST',
-                    body: JSON.stringify({ name, location, spouse, children, notes })
+                    body: JSON.stringify({ name, location, spouse, children, notes, tags: selectedTags })
                 });
                 clearForm();
                 showContacts();
@@ -400,9 +455,10 @@
             document.getElementById('contactSpouse').value = '';
             document.getElementById('contactChildren').value = '';
             document.getElementById('contactNotes').value = '';
+            displayTagSelector('addTagSelector', []);
         }
 
-        // NEW: Edit contact functions
+        // Edit contact functions
         function editContact(id) {
             const contact = contacts.find(c => c.id === id);
             if (!contact) return;
@@ -420,9 +476,17 @@
             document.getElementById('contactsTab').classList.add('hidden');
             document.getElementById('addTab').classList.add('hidden');
             document.getElementById('editTab').classList.remove('hidden');
+            document.getElementById('tagsTab').classList.add('hidden');
             
             // Update nav tabs
             document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+            
+            // Load tags and set selected ones
+            loadTags().then(() => {
+                const contactTagNames = contact.tags || [];
+                const selectedTagIds = tags.filter(tag => contactTagNames.includes(tag.name)).map(tag => tag.id);
+                displayTagSelector('editTagSelector', selectedTagIds);
+            });
         }
 
         async function updateContact() {
@@ -433,6 +497,7 @@
             const spouse = document.getElementById('editContactSpouse').value;
             const children = document.getElementById('editContactChildren').value;
             const notes = document.getElementById('editContactNotes').value;
+            const selectedTags = getSelectedTags('editTagSelector');
             
             if (!name || !location) {
                 alert('Please fill in required fields (Name and Location)');
@@ -442,7 +507,7 @@
             try {
                 await apiCall(`/contacts/${editingContactId}`, {
                     method: 'PUT',
-                    body: JSON.stringify({ name, location, spouse, children, notes })
+                    body: JSON.stringify({ name, location, spouse, children, notes, tags: selectedTags })
                 });
                 
                 editingContactId = null;
@@ -474,9 +539,101 @@
             const query = document.getElementById('searchInput').value.toLowerCase();
             const filtered = contacts.filter(contact => 
                 contact.name.toLowerCase().includes(query) ||
-                contact.location.toLowerCase().includes(query)
+                contact.location.toLowerCase().includes(query) ||
+                (contact.tags && contact.tags.some(tag => tag.toLowerCase().includes(query)))
             );
             displayContacts(filtered);
+        }
+
+        // Tag functions
+        async function loadTags() {
+            try {
+                tags = await apiCall('/tags');
+            } catch (error) {
+                console.error('Failed to load tags:', error);
+            }
+        }
+
+        function displayTagSelector(containerId, selectedTagIds = []) {
+            const container = document.getElementById(containerId);
+            if (!tags.length) {
+                container.innerHTML = '<p style="color: #888; font-size: 14px;">No tags available. Create some tags first!</p>';
+                return;
+            }
+
+            container.innerHTML = tags.map(tag => `
+                <div class="tag-checkbox ${selectedTagIds.includes(tag.id) ? 'selected' : ''}" onclick="toggleTag(this, ${tag.id})">
+                    <input type="checkbox" ${selectedTagIds.includes(tag.id) ? 'checked' : ''} onclick="event.stopPropagation()">
+                    <span>${tag.name}</span>
+                </div>
+            `).join('');
+        }
+
+        function toggleTag(element, tagId) {
+            const checkbox = element.querySelector('input');
+            checkbox.checked = !checkbox.checked;
+            element.classList.toggle('selected', checkbox.checked);
+        }
+
+        function getSelectedTags(containerId) {
+            const container = document.getElementById(containerId);
+            const selectedCheckboxes = container.querySelectorAll('input:checked');
+            return Array.from(selectedCheckboxes).map(cb => {
+                const tagElement = cb.closest('.tag-checkbox');
+                const tagText = tagElement.querySelector('span').textContent;
+                return tags.find(tag => tag.name === tagText).id;
+            });
+        }
+
+        async function createTag() {
+            const name = document.getElementById('newTagName').value.trim();
+            
+            if (!name) {
+                alert('Please enter a tag name');
+                return;
+            }
+            
+            try {
+                await apiCall('/tags', {
+                    method: 'POST',
+                    body: JSON.stringify({ name })
+                });
+                document.getElementById('newTagName').value = '';
+                await loadTags();
+                displayTagsList();
+                alert('Tag created successfully!');
+            } catch (error) {
+                alert('Error creating tag: ' + error.message);
+            }
+        }
+
+        function displayTagsList() {
+            const container = document.getElementById('tagsList');
+            if (!tags.length) {
+                container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🏷️</div><p>No tags yet. Create your first tag!</p></div>';
+                return;
+            }
+
+            container.innerHTML = tags.map(tag => `
+                <div class="tag-grid">
+                    <div class="tag-item">
+                        <div class="tag-name">${tag.name}</div>
+                    </div>
+                    <button class="tag-delete" onclick="deleteTag(${tag.id})">Delete</button>
+                </div>
+            `).join('');
+        }
+
+        async function deleteTag(id) {
+            if (!confirm('Are you sure you want to delete this tag? It will be removed from all contacts.')) return;
+            
+            try {
+                await apiCall(`/tags/${id}`, { method: 'DELETE' });
+                await loadTags();
+                displayTagsList();
+            } catch (error) {
+                alert('Error deleting tag: ' + error.message);
+            }
         }
 
         // Admin functions
