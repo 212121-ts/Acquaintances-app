@@ -119,6 +119,7 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
+// Auth routes
 app.post('/api/register', async (req, res) => {
   try {
     const { email, password, licenseKey } = req.body;
@@ -202,6 +203,7 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
+// Admin routes
 app.get('/api/admin/license-keys', authenticateAdmin, async (req, res) => {
   try {
     const result = await pool.query(
@@ -232,6 +234,7 @@ app.post('/api/admin/license-keys', authenticateAdmin, async (req, res) => {
   }
 });
 
+// Contact routes
 app.get('/api/contacts', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
@@ -261,6 +264,32 @@ app.post('/api/contacts', authenticateToken, async (req, res) => {
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Contact creation error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// NEW: Edit contact route
+app.put('/api/contacts/:id', authenticateToken, async (req, res) => {
+  try {
+    const { name, location, spouse, children, notes } = req.body;
+    const contactId = req.params.id;
+
+    if (!name || !location) {
+      return res.status(400).json({ error: 'Name and location are required' });
+    }
+
+    const result = await pool.query(
+      'UPDATE contacts SET name = $1, location = $2, spouse = $3, children = $4, notes = $5, updated_at = CURRENT_TIMESTAMP WHERE id = $6 AND user_id = $7 RETURNING *',
+      [name, location, spouse || null, children || null, notes || null, contactId, req.user.userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Contact not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Contact update error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
