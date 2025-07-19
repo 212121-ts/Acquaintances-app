@@ -34,8 +34,12 @@
         .contact-name { font-size: 18px; color: #fff; margin-bottom: 8px; }
         .contact-location { color: #999; font-size: 14px; margin-bottom: 12px; }
         .contact-actions { display: flex; gap: 8px; margin-top: 12px; }
-        .btn-small { padding: 6px 12px; font-size: 12px; border-radius: 4px; border: 1px solid #555; cursor: pointer; background: #4d2626; color: #ccc; }
-        .btn-small:hover { background: #663333; }
+        .btn-small { padding: 6px 12px; font-size: 12px; border-radius: 4px; border: 1px solid #555; cursor: pointer; color: #ccc; }
+        .btn-small:hover { background: #555; }
+        .btn-edit { background: #404040; }
+        .btn-edit:hover { background: #4d4d4d; }
+        .btn-delete { background: #4d2626; }
+        .btn-delete:hover { background: #663333; }
         .empty-state { text-align: center; padding: 40px 20px; color: #888; }
         .empty-state-icon { font-size: 48px; margin-bottom: 16px; }
         .license-key { background: #262626; border: 1px solid #404040; border-radius: 4px; padding: 12px; margin-bottom: 12px; font-family: monospace; font-size: 14px; display: flex; justify-content: space-between; color: #ccc; }
@@ -163,6 +167,33 @@
                     <button class="btn" onclick="saveContact()">Save Contact</button>
                     <button class="btn btn-secondary" onclick="clearForm()">Clear Form</button>
                 </div>
+
+                <!-- Edit Contact Tab -->
+                <div id="editTab" class="hidden">
+                    <h3>Edit Contact</h3>
+                    <div class="form-group">
+                        <label>Name *</label>
+                        <input type="text" id="editContactName" placeholder="Enter person's name">
+                    </div>
+                    <div class="form-group">
+                        <label>Location/Event *</label>
+                        <input type="text" id="editContactLocation" placeholder="Where did you meet?">
+                    </div>
+                    <div class="form-group">
+                        <label>Significant Other</label>
+                        <input type="text" id="editContactSpouse" placeholder="Partner's name">
+                    </div>
+                    <div class="form-group">
+                        <label>Children</label>
+                        <input type="text" id="editContactChildren" placeholder="Children's names">
+                    </div>
+                    <div class="form-group">
+                        <label>Notes</label>
+                        <textarea id="editContactNotes" placeholder="Additional notes..."></textarea>
+                    </div>
+                    <button class="btn" onclick="updateContact()">Update Contact</button>
+                    <button class="btn btn-secondary" onclick="cancelEdit()">Cancel</button>
+                </div>
             </div>
         </div>
     </div>
@@ -170,6 +201,7 @@
     <script>
         let authToken = localStorage.getItem('authToken') || '';
         let contacts = [];
+        let editingContactId = null;
 
         // Initialize
         if (authToken) {
@@ -201,6 +233,7 @@
             document.querySelector('.nav-tab:first-child').classList.add('active');
             document.getElementById('contactsTab').classList.remove('hidden');
             document.getElementById('addTab').classList.add('hidden');
+            document.getElementById('editTab').classList.add('hidden');
             loadContacts();
         }
 
@@ -209,6 +242,7 @@
             document.querySelector('.nav-tab:last-child').classList.add('active');
             document.getElementById('contactsTab').classList.add('hidden');
             document.getElementById('addTab').classList.remove('hidden');
+            document.getElementById('editTab').classList.add('hidden');
         }
 
         // API functions
@@ -328,7 +362,8 @@
                     ${contact.children ? `<div><strong>Children:</strong> ${contact.children}</div>` : ''}
                     ${contact.notes ? `<div><strong>Notes:</strong> ${contact.notes}</div>` : ''}
                     <div class="contact-actions">
-                        <button class="btn-small" onclick="deleteContact(${contact.id})">Delete</button>
+                        <button class="btn-small btn-edit" onclick="editContact(${contact.id})">Edit</button>
+                        <button class="btn-small btn-delete" onclick="deleteContact(${contact.id})">Delete</button>
                     </div>
                 </div>
             `).join('');
@@ -365,6 +400,63 @@
             document.getElementById('contactSpouse').value = '';
             document.getElementById('contactChildren').value = '';
             document.getElementById('contactNotes').value = '';
+        }
+
+        // NEW: Edit contact functions
+        function editContact(id) {
+            const contact = contacts.find(c => c.id === id);
+            if (!contact) return;
+            
+            editingContactId = id;
+            
+            // Fill the edit form with current data
+            document.getElementById('editContactName').value = contact.name;
+            document.getElementById('editContactLocation').value = contact.location;
+            document.getElementById('editContactSpouse').value = contact.spouse || '';
+            document.getElementById('editContactChildren').value = contact.children || '';
+            document.getElementById('editContactNotes').value = contact.notes || '';
+            
+            // Show edit form
+            document.getElementById('contactsTab').classList.add('hidden');
+            document.getElementById('addTab').classList.add('hidden');
+            document.getElementById('editTab').classList.remove('hidden');
+            
+            // Update nav tabs
+            document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+        }
+
+        async function updateContact() {
+            if (!editingContactId) return;
+            
+            const name = document.getElementById('editContactName').value;
+            const location = document.getElementById('editContactLocation').value;
+            const spouse = document.getElementById('editContactSpouse').value;
+            const children = document.getElementById('editContactChildren').value;
+            const notes = document.getElementById('editContactNotes').value;
+            
+            if (!name || !location) {
+                alert('Please fill in required fields (Name and Location)');
+                return;
+            }
+            
+            try {
+                await apiCall(`/contacts/${editingContactId}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ name, location, spouse, children, notes })
+                });
+                
+                editingContactId = null;
+                showContacts();
+                alert('Contact updated successfully!');
+            } catch (error) {
+                alert('Error updating contact: ' + error.message);
+            }
+        }
+
+        function cancelEdit() {
+            editingContactId = null;
+            document.getElementById('editTab').classList.add('hidden');
+            showContacts();
         }
 
         async function deleteContact(id) {
