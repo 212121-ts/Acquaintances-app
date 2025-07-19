@@ -102,6 +102,26 @@ async function initializeDatabase() {
       )
     `);
 
+    // NEW: Tags table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS tags (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(100) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, name)
+      )
+    `);
+
+    // NEW: Contact-Tag relationship table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS contact_tags (
+        contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+        tag_id INTEGER REFERENCES tags(id) ON DELETE CASCADE,
+        PRIMARY KEY (contact_id, tag_id)
+      )
+    `);
+
     await pool.query(`
       INSERT INTO license_keys (key_value, status) 
       VALUES ('DEMO-KEY-123', 'active') 
@@ -234,13 +254,26 @@ app.post('/api/admin/license-keys', authenticateAdmin, async (req, res) => {
   }
 });
 
-// Contact routes
+// Contact routes with tags
 app.get('/api/contacts', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query(
-      'SELECT * FROM contacts WHERE user_id = $1 ORDER BY created_at DESC',
-      [req.user.userId]
-    );
+    const result = await pool.query(`
+      SELECT 
+        c.*,
+        COALESCE(
+          JSON_AGG(
+            CASE WHEN t.name IS NOT NULL THEN t.name END
+          ) FILTER (WHERE t.name IS NOT NULL),
+          '[]'
+        ) as tags
+      FROM contacts c
+      LEFT JOIN contact_tags ct ON c.id = ct.contact_id
+      LEFT JOIN tags t ON ct.tag_id = t.id
+      WHERE c.user_id = $1
+      GROUP BY c.id
+      ORDER BY c.created_at DESC
+    `, [req.user.userId]);
+
     res.json(result.rows);
   } catch (error) {
     console.error('Contacts fetch error:', error);
@@ -249,48 +282,88 @@ app.get('/api/contacts', authenticateToken, async (req, res) => {
 });
 
 app.post('/api/contacts', authenticateToken, async (req, res) => {
+  const client = await pool.connect();
   try {
-    const { name, location, spouse, children, notes } = req.body;
+    await client.query('BEGIN');
+
+    const { name, location, spouse, children, notes, tags } = req.body;
 
     if (!name || !location) {
       return res.status(400).json({ error: 'Name and location are required' });
     }
 
-    const result = await pool.query(
+    // Insert contact
+    const contactResult = await client.query(
       'INSERT INTO contacts (user_id, name, location, spouse, children, notes) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
       [req.user.userId, name, location, spouse || null, children || null, notes || null]
     );
 
-    res.status(201).json(result.rows[0]);
+    const contact = contactResult.rows[0];
+
+    // Handle tags
+    if (tags && tags.length > 0) {
+      for (const tagId of tags) {
+        await client.query(
+          'INSERT INTO contact_tags (contact_id, tag_id) VALUES ($1, $2)',
+          [contact.id, tagId]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+    res.status(201).json(contact);
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Contact creation error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    client.release();
   }
 });
 
-// NEW: Edit contact route
 app.put('/api/contacts/:id', authenticateToken, async (req, res) => {
+  const client = await pool.connect();
   try {
-    const { name, location, spouse, children, notes } = req.body;
+    await client.query('BEGIN');
+
+    const { name, location, spouse, children, notes, tags } = req.body;
     const contactId = req.params.id;
 
     if (!name || !location) {
       return res.status(400).json({ error: 'Name and location are required' });
     }
 
-    const result = await pool.query(
+    // Update contact
+    const result = await client.query(
       'UPDATE contacts SET name = $1, location = $2, spouse = $3, children = $4, notes = $5, updated_at = CURRENT_TIMESTAMP WHERE id = $6 AND user_id = $7 RETURNING *',
       [name, location, spouse || null, children || null, notes || null, contactId, req.user.userId]
     );
 
     if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Contact not found' });
     }
 
+    // Remove existing tags and add new ones
+    await client.query('DELETE FROM contact_tags WHERE contact_id = $1', [contactId]);
+    
+    if (tags && tags.length > 0) {
+      for (const tagId of tags) {
+        await client.query(
+          'INSERT INTO contact_tags (contact_id, tag_id) VALUES ($1, $2)',
+          [contactId, tagId]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
     res.json(result.rows[0]);
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Contact update error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    client.release();
   }
 });
 
@@ -308,6 +381,61 @@ app.delete('/api/contacts/:id', authenticateToken, async (req, res) => {
     res.json({ message: 'Contact deleted successfully' });
   } catch (error) {
     console.error('Contact deletion error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// NEW: Tag routes
+app.get('/api/tags', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT * FROM tags WHERE user_id = $1 ORDER BY name',
+      [req.user.userId]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Tags fetch error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/tags', authenticateToken, async (req, res) => {
+  try {
+    const { name } = req.body;
+
+    if (!name || name.trim().length === 0) {
+      return res.status(400).json({ error: 'Tag name is required' });
+    }
+
+    const result = await pool.query(
+      'INSERT INTO tags (user_id, name) VALUES ($1, $2) RETURNING *',
+      [req.user.userId, name.trim()]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    if (error.code === '23505') { // Unique constraint violation
+      res.status(400).json({ error: 'Tag already exists' });
+    } else {
+      console.error('Tag creation error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+});
+
+app.delete('/api/tags/:id', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'DELETE FROM tags WHERE id = $1 AND user_id = $2 RETURNING id',
+      [req.params.id, req.user.userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Tag not found' });
+    }
+
+    res.json({ message: 'Tag deleted successfully' });
+  } catch (error) {
+    console.error('Tag deletion error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
