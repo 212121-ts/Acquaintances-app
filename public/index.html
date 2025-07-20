@@ -167,6 +167,7 @@
                     <div class="nav-tab" onclick="showAddContact()">Add New</div>
                     <div class="nav-tab" onclick="showTags()">Tags</div>
                     <div class="nav-tab" onclick="showNetwork()">Network</div>
+                    <div class="nav-tab" onclick="showSettings()">Settings</div>
                 </div>
 
                 <!-- Contacts Tab -->
@@ -306,6 +307,43 @@
                         </select>
                     </div>
                 </div>
+
+                <!-- Settings Tab -->
+                <div id="settingsTab" class="hidden">
+                    <h3>Account Settings</h3>
+                    
+                    <div class="form-group">
+                        <label>Change Password</label>
+                    </div>
+                    
+                    <div id="passwordChangeError" class="error hidden"></div>
+                    <div id="passwordChangeSuccess" class="hidden" style="background: #1a4d1a; color: #99ff99; padding: 10px; border-radius: 4px; margin-bottom: 16px; border: 1px solid #2d662d;">Password changed successfully!</div>
+                    
+                    <div class="form-group">
+                        <label>Current Password *</label>
+                        <input type="password" id="currentPassword" placeholder="Enter your current password">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>New Password *</label>
+                        <input type="password" id="newPassword" placeholder="Enter new password (min 6 characters)">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Confirm New Password *</label>
+                        <input type="password" id="confirmPassword" placeholder="Confirm new password">
+                    </div>
+                    
+                    <button class="btn" onclick="changePassword()">Change Password</button>
+                    
+                    <h3 style="margin-top: 32px;">Account Information</h3>
+                    <div class="user-info">
+                        <div style="margin-bottom: 8px;"><strong>Email:</strong> <span id="settingsUserEmail"></span></div>
+                        <div style="margin-bottom: 8px;"><strong>Total Contacts:</strong> <span id="settingsTotalContacts">0</span></div>
+                        <div style="margin-bottom: 8px;"><strong>Total Tags:</strong> <span id="settingsTotalTags">0</span></div>
+                        <div><strong>Account Created:</strong> <span id="accountCreated">-</span></div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -362,6 +400,8 @@
             document.getElementById('editTab').classList.add('hidden');
             document.getElementById('tagsTab').classList.add('hidden');
             document.getElementById('networkTab').classList.add('hidden');
+            document.getElementById('settingsTab').classList.add('hidden');
+            document.getElementById('settingsTab').classList.add('hidden');
             loadContacts();
         }
 
@@ -373,6 +413,7 @@
             document.getElementById('editTab').classList.add('hidden');
             document.getElementById('tagsTab').classList.add('hidden');
             document.getElementById('networkTab').classList.add('hidden');
+            document.getElementById('settingsTab').classList.add('hidden');
             loadTags().then(() => displayTagSelector('addTagSelector', []));
         }
 
@@ -384,6 +425,7 @@
             document.getElementById('editTab').classList.add('hidden');
             document.getElementById('tagsTab').classList.remove('hidden');
             document.getElementById('networkTab').classList.add('hidden');
+            document.getElementById('settingsTab').classList.add('hidden');
             loadTags().then(() => displayTagsList());
         }
 
@@ -395,7 +437,20 @@
             document.getElementById('editTab').classList.add('hidden');
             document.getElementById('tagsTab').classList.add('hidden');
             document.getElementById('networkTab').classList.remove('hidden');
+            document.getElementById('settingsTab').classList.add('hidden');
             initializeNetwork();
+        }
+
+        function showSettings() {
+            document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+            document.querySelector('.nav-tab:nth-child(5)').classList.add('active');
+            document.getElementById('contactsTab').classList.add('hidden');
+            document.getElementById('addTab').classList.add('hidden');
+            document.getElementById('editTab').classList.add('hidden');
+            document.getElementById('tagsTab').classList.add('hidden');
+            document.getElementById('networkTab').classList.add('hidden');
+            document.getElementById('settingsTab').classList.remove('hidden');
+            loadSettingsData();
         }
 
         // API functions
@@ -1168,6 +1223,81 @@
             applyForces();
             draw();
             animationId = requestAnimationFrame(animate);
+        }
+
+        // Settings functions
+        function loadSettingsData() {
+            // Load user email
+            const email = localStorage.getItem('userEmail') || 'User';
+            document.getElementById('settingsUserEmail').textContent = email;
+            
+            // Load contact and tag counts
+            document.getElementById('settingsTotalContacts').textContent = contacts.length;
+            document.getElementById('settingsTotalTags').textContent = tags.length;
+            
+            // Clear password fields
+            document.getElementById('currentPassword').value = '';
+            document.getElementById('newPassword').value = '';
+            document.getElementById('confirmPassword').value = '';
+            
+            // Hide any previous messages
+            document.getElementById('passwordChangeError').classList.add('hidden');
+            document.getElementById('passwordChangeSuccess').classList.add('hidden');
+        }
+
+        async function changePassword() {
+            const currentPassword = document.getElementById('currentPassword').value;
+            const newPassword = document.getElementById('newPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+            
+            // Hide any previous messages
+            document.getElementById('passwordChangeError').classList.add('hidden');
+            document.getElementById('passwordChangeSuccess').classList.add('hidden');
+            
+            // Validation
+            if (!currentPassword || !newPassword || !confirmPassword) {
+                showError('passwordChangeError', 'All fields are required');
+                return;
+            }
+            
+            if (newPassword.length < 6) {
+                showError('passwordChangeError', 'New password must be at least 6 characters long');
+                return;
+            }
+            
+            if (newPassword !== confirmPassword) {
+                showError('passwordChangeError', 'New passwords do not match');
+                return;
+            }
+            
+            if (currentPassword === newPassword) {
+                showError('passwordChangeError', 'New password must be different from current password');
+                return;
+            }
+            
+            try {
+                await apiCall('/change-password', {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        currentPassword,
+                        newPassword
+                    })
+                });
+                
+                // Clear form and show success
+                document.getElementById('currentPassword').value = '';
+                document.getElementById('newPassword').value = '';
+                document.getElementById('confirmPassword').value = '';
+                document.getElementById('passwordChangeSuccess').classList.remove('hidden');
+                
+                // Auto-hide success message after 5 seconds
+                setTimeout(() => {
+                    document.getElementById('passwordChangeSuccess').classList.add('hidden');
+                }, 5000);
+                
+            } catch (error) {
+                showError('passwordChangeError', error.message);
+            }
         }
 
         // Admin functions
