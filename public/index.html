@@ -67,6 +67,19 @@
         .tag-checkbox { display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: #404040; border: 1px solid #555; border-radius: 16px; cursor: pointer; font-size: 12px; }
         .tag-checkbox.selected { background: #555; border-color: #777; }
         .tag-checkbox input { margin: 0; }
+
+        /* Network Visualization Styles */
+        .network-container { width: 100%; height: 400px; border: 1px solid #404040; border-radius: 8px; background: #0f0f0f; position: relative; overflow: hidden; margin-bottom: 16px; }
+        .network-controls { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+        .network-control-btn { padding: 8px 16px; background: #333; color: #fff; border: 1px solid #555; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        .network-control-btn:hover { background: #404040; }
+        .network-control-btn.active { background: #555; border-color: #777; }
+        .network-legend { background: #262626; border: 1px solid #404040; border-radius: 4px; padding: 12px; margin-bottom: 16px; }
+        .legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .legend-color { width: 12px; height: 12px; border-radius: 50%; }
+        .network-stats { background: #262626; border: 1px solid #404040; border-radius: 4px; padding: 12px; margin-bottom: 16px; }
+        .stat-item { display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .tooltip { position: absolute; background: #1a1a1a; border: 1px solid #555; border-radius: 4px; padding: 8px; color: #fff; font-size: 12px; z-index: 1000; pointer-events: none; max-width: 200px; }
     </style>
 </head>
 <body>
@@ -153,6 +166,7 @@
                     <div class="nav-tab active" onclick="showContacts()">Contacts</div>
                     <div class="nav-tab" onclick="showAddContact()">Add New</div>
                     <div class="nav-tab" onclick="showTags()">Tags</div>
+                    <div class="nav-tab" onclick="showNetwork()">Network</div>
                 </div>
 
                 <!-- Contacts Tab -->
@@ -237,6 +251,61 @@
                     <h3 style="margin-top: 24px;">Your Tags</h3>
                     <div id="tagsList"></div>
                 </div>
+
+                <!-- Network Tab -->
+                <div id="networkTab" class="hidden">
+                    <h3>Network Visualization</h3>
+                    
+                    <div class="network-stats">
+                        <div class="stat-item">
+                            <span>Total Contacts:</span>
+                            <span id="totalContacts">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span>Total Connections:</span>
+                            <span id="totalConnections">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span>Most Connected:</span>
+                            <span id="mostConnected">-</span>
+                        </div>
+                    </div>
+
+                    <div class="network-controls">
+                        <button class="network-control-btn active" onclick="setLayout('force')">Force Layout</button>
+                        <button class="network-control-btn" onclick="setLayout('circle')">Circle Layout</button>
+                        <button class="network-control-btn" onclick="togglePhysics()">Toggle Physics</button>
+                        <button class="network-control-btn" onclick="resetZoom()">Reset Zoom</button>
+                    </div>
+
+                    <div class="network-legend">
+                        <strong style="color: #fff; margin-bottom: 8px; display: block;">Legend</strong>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #4a90e2;"></div>
+                            <span>Contact nodes</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #7cb342;"></div>
+                            <span>Highly connected (3+ tags)</span>
+                        </div>
+                        <div class="legend-item">
+                            <div style="width: 12px; height: 2px; background: #666; border-radius: 1px;"></div>
+                            <span>Shared tag connections</span>
+                        </div>
+                    </div>
+
+                    <div class="network-container" id="networkContainer">
+                        <canvas id="networkCanvas"></canvas>
+                        <div id="networkTooltip" class="tooltip" style="display: none;"></div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Filter by Tag</label>
+                        <select id="tagFilter" onchange="filterByTag()">
+                            <option value="">Show all connections</option>
+                        </select>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -246,6 +315,19 @@
         let contacts = [];
         let tags = [];
         let editingContactId = null;
+        let networkCanvas, networkCtx;
+        let networkData = { nodes: [], edges: [] };
+        let networkLayout = 'force';
+        let physicsEnabled = true;
+        let nodes = [];
+        let edges = [];
+        let animationId;
+        let scale = 1;
+        let offsetX = 0;
+        let offsetY = 0;
+        let isDragging = false;
+        let dragStart = { x: 0, y: 0 };
+        let selectedNode = null;
 
         // Initialize
         if (authToken) {
@@ -279,6 +361,7 @@
             document.getElementById('addTab').classList.add('hidden');
             document.getElementById('editTab').classList.add('hidden');
             document.getElementById('tagsTab').classList.add('hidden');
+            document.getElementById('networkTab').classList.add('hidden');
             loadContacts();
         }
 
@@ -289,6 +372,7 @@
             document.getElementById('addTab').classList.remove('hidden');
             document.getElementById('editTab').classList.add('hidden');
             document.getElementById('tagsTab').classList.add('hidden');
+            document.getElementById('networkTab').classList.add('hidden');
             loadTags().then(() => displayTagSelector('addTagSelector', []));
         }
 
@@ -299,7 +383,19 @@
             document.getElementById('addTab').classList.add('hidden');
             document.getElementById('editTab').classList.add('hidden');
             document.getElementById('tagsTab').classList.remove('hidden');
+            document.getElementById('networkTab').classList.add('hidden');
             loadTags().then(() => displayTagsList());
+        }
+
+        function showNetwork() {
+            document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+            document.querySelector('.nav-tab:nth-child(4)').classList.add('active');
+            document.getElementById('contactsTab').classList.add('hidden');
+            document.getElementById('addTab').classList.add('hidden');
+            document.getElementById('editTab').classList.add('hidden');
+            document.getElementById('tagsTab').classList.add('hidden');
+            document.getElementById('networkTab').classList.remove('hidden');
+            initializeNetwork();
         }
 
         // API functions
@@ -487,6 +583,7 @@
             document.getElementById('addTab').classList.add('hidden');
             document.getElementById('editTab').classList.remove('hidden');
             document.getElementById('tagsTab').classList.add('hidden');
+            document.getElementById('networkTab').classList.add('hidden');
             
             // Update nav tabs
             document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
@@ -712,6 +809,367 @@
             }
         }
 
+        // Network Visualization Functions
+        function initializeNetwork() {
+            if (!networkCanvas) {
+                networkCanvas = document.getElementById('networkCanvas');
+                networkCtx = networkCanvas.getContext('2d');
+                
+                // Set canvas size
+                const container = document.getElementById('networkContainer');
+                networkCanvas.width = container.clientWidth;
+                networkCanvas.height = container.clientHeight;
+                
+                // Add event listeners
+                networkCanvas.addEventListener('mousedown', handleMouseDown);
+                networkCanvas.addEventListener('mousemove', handleMouseMove);
+                networkCanvas.addEventListener('mouseup', handleMouseUp);
+                networkCanvas.addEventListener('wheel', handleWheel);
+            }
+            
+            generateNetworkData();
+            updateNetworkStats();
+            populateTagFilter();
+            animate();
+        }
+
+        function generateNetworkData() {
+            nodes = [];
+            edges = [];
+            
+            // Create nodes for each contact
+            contacts.forEach((contact, index) => {
+                const tagCount = contact.tags ? contact.tags.length : 0;
+                nodes.push({
+                    id: contact.id,
+                    name: contact.name,
+                    tags: contact.tags || [],
+                    x: Math.random() * (networkCanvas.width - 100) + 50,
+                    y: Math.random() * (networkCanvas.height - 100) + 50,
+                    vx: 0,
+                    vy: 0,
+                    radius: Math.max(8, Math.min(20, 8 + tagCount * 2)),
+                    color: tagCount >= 3 ? '#7cb342' : '#4a90e2',
+                    connections: 0
+                });
+            });
+            
+            // Create edges based on shared tags
+            for (let i = 0; i < nodes.length; i++) {
+                for (let j = i + 1; j < nodes.length; j++) {
+                    const sharedTags = nodes[i].tags.filter(tag => nodes[j].tags.includes(tag));
+                    if (sharedTags.length > 0) {
+                        edges.push({
+                            source: i,
+                            target: j,
+                            weight: sharedTags.length,
+                            sharedTags: sharedTags,
+                            visible: true
+                        });
+                        nodes[i].connections++;
+                        nodes[j].connections++;
+                    }
+                }
+            }
+        }
+
+        function updateNetworkStats() {
+            document.getElementById('totalContacts').textContent = contacts.length;
+            document.getElementById('totalConnections').textContent = edges.filter(e => e.visible).length;
+            
+            if (nodes.length > 0) {
+                const mostConnected = nodes.reduce((max, node) => 
+                    node.connections > max.connections ? node : max, nodes[0]);
+                document.getElementById('mostConnected').textContent = 
+                    `${mostConnected.name} (${mostConnected.connections})`;
+            } else {
+                document.getElementById('mostConnected').textContent = '-';
+            }
+        }
+
+        function populateTagFilter() {
+            const select = document.getElementById('tagFilter');
+            select.innerHTML = '<option value="">Show all connections</option>';
+            
+            tags.forEach(tag => {
+                const option = document.createElement('option');
+                option.value = tag.name;
+                option.textContent = tag.name;
+                select.appendChild(option);
+            });
+        }
+
+        function filterByTag() {
+            const selectedTag = document.getElementById('tagFilter').value;
+            
+            edges.forEach(edge => {
+                if (!selectedTag) {
+                    edge.visible = true;
+                } else {
+                    edge.visible = edge.sharedTags.includes(selectedTag);
+                }
+            });
+            
+            updateNetworkStats();
+        }
+
+        function setLayout(layout) {
+            networkLayout = layout;
+            document.querySelectorAll('.network-control-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            if (layout === 'circle') {
+                arrangeInCircle();
+            } else if (layout === 'force') {
+                // Force layout happens naturally through physics
+            }
+        }
+
+        function arrangeInCircle() {
+            const centerX = networkCanvas.width / 2;
+            const centerY = networkCanvas.height / 2;
+            const radius = Math.min(centerX, centerY) - 50;
+            
+            nodes.forEach((node, index) => {
+                const angle = (index / nodes.length) * 2 * Math.PI;
+                node.x = centerX + Math.cos(angle) * radius;
+                node.y = centerY + Math.sin(angle) * radius;
+                node.vx = 0;
+                node.vy = 0;
+            });
+        }
+
+        function togglePhysics() {
+            physicsEnabled = !physicsEnabled;
+            event.target.textContent = physicsEnabled ? 'Toggle Physics' : 'Enable Physics';
+        }
+
+        function resetZoom() {
+            scale = 1;
+            offsetX = 0;
+            offsetY = 0;
+        }
+
+        function handleMouseDown(event) {
+            const rect = networkCanvas.getBoundingClientRect();
+            const x = (event.clientX - rect.left - offsetX) / scale;
+            const y = (event.clientY - rect.top - offsetY) / scale;
+            
+            // Check if clicking on a node
+            selectedNode = null;
+            for (let node of nodes) {
+                const dx = x - node.x;
+                const dy = y - node.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < node.radius) {
+                    selectedNode = node;
+                    break;
+                }
+            }
+            
+            if (!selectedNode) {
+                isDragging = true;
+                dragStart = { x: event.clientX - offsetX, y: event.clientY - offsetY };
+            }
+        }
+
+        function handleMouseMove(event) {
+            const rect = networkCanvas.getBoundingClientRect();
+            const x = (event.clientX - rect.left - offsetX) / scale;
+            const y = (event.clientY - rect.top - offsetY) / scale;
+            
+            if (selectedNode && event.buttons === 1) {
+                selectedNode.x = x;
+                selectedNode.y = y;
+                selectedNode.vx = 0;
+                selectedNode.vy = 0;
+            } else if (isDragging && event.buttons === 1) {
+                offsetX = event.clientX - dragStart.x;
+                offsetY = event.clientY - dragStart.y;
+            } else {
+                // Show tooltip on hover
+                showTooltip(event, x, y);
+            }
+        }
+
+        function handleMouseUp() {
+            selectedNode = null;
+            isDragging = false;
+        }
+
+        function handleWheel(event) {
+            event.preventDefault();
+            const rect = networkCanvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+            
+            const zoom = event.deltaY > 0 ? 0.9 : 1.1;
+            const newScale = scale * zoom;
+            
+            if (newScale > 0.1 && newScale < 3) {
+                const dx = x - offsetX;
+                const dy = y - offsetY;
+                
+                offsetX = x - dx * zoom;
+                offsetY = y - dy * zoom;
+                scale = newScale;
+            }
+        }
+
+        function showTooltip(event, x, y) {
+            const tooltip = document.getElementById('networkTooltip');
+            let hoveredNode = null;
+            
+            for (let node of nodes) {
+                const dx = x - node.x;
+                const dy = y - node.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < node.radius) {
+                    hoveredNode = node;
+                    break;
+                }
+            }
+            
+            if (hoveredNode) {
+                const contact = contacts.find(c => c.id === hoveredNode.id);
+                tooltip.style.display = 'block';
+                tooltip.style.left = event.clientX + 10 + 'px';
+                tooltip.style.top = event.clientY - 10 + 'px';
+                tooltip.innerHTML = `
+                    <strong>${contact.name}</strong><br>
+                    Location: ${contact.location}<br>
+                    Tags: ${contact.tags ? contact.tags.join(', ') : 'None'}<br>
+                    Connections: ${hoveredNode.connections}
+                `;
+            } else {
+                tooltip.style.display = 'none';
+            }
+        }
+
+        function applyForces() {
+            if (!physicsEnabled || networkLayout === 'circle') return;
+            
+            // Repulsion between nodes
+            for (let i = 0; i < nodes.length; i++) {
+                for (let j = i + 1; j < nodes.length; j++) {
+                    const dx = nodes[j].x - nodes[i].x;
+                    const dy = nodes[j].y - nodes[i].y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance > 0) {
+                        const force = 100 / (distance * distance);
+                        const fx = (dx / distance) * force;
+                        const fy = (dy / distance) * force;
+                        
+                        nodes[i].vx -= fx;
+                        nodes[i].vy -= fy;
+                        nodes[j].vx += fx;
+                        nodes[j].vy += fy;
+                    }
+                }
+            }
+            
+            // Attraction along edges
+            edges.forEach(edge => {
+                if (!edge.visible) return;
+                
+                const source = nodes[edge.source];
+                const target = nodes[edge.target];
+                const dx = target.x - source.x;
+                const dy = target.y - source.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance > 0) {
+                    const force = (distance - 100) * 0.1 * edge.weight;
+                    const fx = (dx / distance) * force;
+                    const fy = (dy / distance) * force;
+                    
+                    source.vx += fx;
+                    source.vy += fy;
+                    target.vx -= fx;
+                    target.vy -= fy;
+                }
+            });
+            
+            // Center force
+            const centerX = networkCanvas.width / 2;
+            const centerY = networkCanvas.height / 2;
+            
+            nodes.forEach(node => {
+                const dx = centerX - node.x;
+                const dy = centerY - node.y;
+                node.vx += dx * 0.001;
+                node.vy += dy * 0.001;
+            });
+            
+            // Apply velocity and damping
+            nodes.forEach(node => {
+                node.vx *= 0.9;
+                node.vy *= 0.9;
+                node.x += node.vx;
+                node.y += node.vy;
+                
+                // Boundary constraints
+                node.x = Math.max(node.radius, Math.min(networkCanvas.width - node.radius, node.x));
+                node.y = Math.max(node.radius, Math.min(networkCanvas.height - node.radius, node.y));
+            });
+        }
+
+        function draw() {
+            networkCtx.clearRect(0, 0, networkCanvas.width, networkCanvas.height);
+            
+            networkCtx.save();
+            networkCtx.translate(offsetX, offsetY);
+            networkCtx.scale(scale, scale);
+            
+            // Draw edges
+            networkCtx.strokeStyle = '#666';
+            networkCtx.lineWidth = 1;
+            
+            edges.forEach(edge => {
+                if (!edge.visible) return;
+                
+                const source = nodes[edge.source];
+                const target = nodes[edge.target];
+                
+                networkCtx.beginPath();
+                networkCtx.moveTo(source.x, source.y);
+                networkCtx.lineTo(target.x, target.y);
+                networkCtx.globalAlpha = 0.3 + (edge.weight * 0.1);
+                networkCtx.stroke();
+                networkCtx.globalAlpha = 1;
+            });
+            
+            // Draw nodes
+            nodes.forEach(node => {
+                networkCtx.beginPath();
+                networkCtx.arc(node.x, node.y, node.radius, 0, 2 * Math.PI);
+                networkCtx.fillStyle = node.color;
+                networkCtx.fill();
+                
+                // Draw node border
+                networkCtx.strokeStyle = '#fff';
+                networkCtx.lineWidth = 2;
+                networkCtx.stroke();
+                
+                // Draw node label
+                networkCtx.fillStyle = '#fff';
+                networkCtx.font = '12px Arial';
+                networkCtx.textAlign = 'center';
+                networkCtx.fillText(node.name, node.x, node.y + node.radius + 15);
+            });
+            
+            networkCtx.restore();
+        }
+
+        function animate() {
+            applyForces();
+            draw();
+            animationId = requestAnimationFrame(animate);
+        }
+
         // Admin functions
         async function generateKeys() {
             const quantity = parseInt(document.getElementById('keyQuantity').value);
@@ -758,6 +1216,15 @@
         function hideError(elementId) {
             document.getElementById(elementId).classList.add('hidden');
         }
+
+        // Window resize handler for network canvas
+        window.addEventListener('resize', () => {
+            if (networkCanvas) {
+                const container = document.getElementById('networkContainer');
+                networkCanvas.width = container.clientWidth;
+                networkCanvas.height = container.clientHeight;
+            }
+        });
     </script>
 </body>
 </html>
