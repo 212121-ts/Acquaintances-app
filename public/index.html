@@ -223,7 +223,7 @@
                 <!-- Contacts Tab -->
                 <div id="contactsTab">
                     <div class="form-group">
-                        <input type="text" id="searchInput" placeholder="Search contacts..." onkeyup="searchContacts()">
+                        <input type="text" id="searchInput" placeholder="Search contacts by name, location, spouse, children, notes, or tags..." onkeyup="searchContacts()">
                     </div>
                     <div id="contactsList"></div>
                 </div>
@@ -753,6 +753,9 @@
             const filtered = contacts.filter(contact => 
                 contact.name.toLowerCase().includes(query) ||
                 contact.location.toLowerCase().includes(query) ||
+                (contact.spouse && contact.spouse.toLowerCase().includes(query)) ||
+                (contact.children && contact.children.toLowerCase().includes(query)) ||
+                (contact.notes && contact.notes.toLowerCase().includes(query)) ||
                 (contact.tags && contact.tags.some(tag => tag.toLowerCase().includes(query)))
             );
             displayContacts(filtered);
