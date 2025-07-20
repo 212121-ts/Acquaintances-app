@@ -1479,9 +1479,14 @@
         }
 
         async function adminResetPassword() {
-            const email = document.getElementById('adminResetEmail').value;
+            const email = document.getElementById('adminResetEmail').value.trim();
             const newPassword = document.getElementById('adminNewPassword').value;
             const confirmPassword = document.getElementById('adminConfirmPassword').value;
+            
+            console.log('Frontend: Starting password reset'); // Debug log
+            console.log('Frontend: Email:', email); // Debug log
+            console.log('Frontend: New password length:', newPassword ? newPassword.length : 0); // Debug log
+            console.log('Frontend: Confirm password length:', confirmPassword ? confirmPassword.length : 0); // Debug log
             
             // Hide any previous messages
             document.getElementById('adminPasswordResetError').classList.add('hidden');
@@ -1489,29 +1494,50 @@
             
             // Validation
             if (!email || !newPassword || !confirmPassword) {
+                console.log('Frontend: Missing fields validation failed'); // Debug log
                 showError('adminPasswordResetError', 'All fields are required');
                 return;
             }
             
             if (newPassword.length < 6) {
+                console.log('Frontend: Password too short'); // Debug log
                 showError('adminPasswordResetError', 'Password must be at least 6 characters long');
                 return;
             }
             
             if (newPassword !== confirmPassword) {
+                console.log('Frontend: Passwords do not match'); // Debug log
                 showError('adminPasswordResetError', 'Passwords do not match');
                 return;
             }
             
             try {
-                const result = await apiCall('/admin/reset-password', {
+                console.log('Frontend: Making API call'); // Debug log
+                
+                const requestBody = {
+                    email: email,
+                    newPassword: newPassword
+                };
+                
+                console.log('Frontend: Request body:', requestBody); // Debug log
+                
+                const response = await fetch('/api/admin/reset-password', {
                     method: 'PUT',
-                    headers: { 'admin-password': sessionStorage.getItem('adminPassword') },
-                    body: JSON.stringify({
-                        email,
-                        newPassword
-                    })
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'admin-password': sessionStorage.getItem('adminPassword')
+                    },
+                    body: JSON.stringify(requestBody)
                 });
+                
+                console.log('Frontend: Response status:', response.status); // Debug log
+                
+                const result = await response.json();
+                console.log('Frontend: Response data:', result); // Debug log
+                
+                if (!response.ok) {
+                    throw new Error(result.error || 'Unknown error occurred');
+                }
                 
                 // Clear form and show success
                 document.getElementById('adminResetEmail').value = '';
@@ -1519,7 +1545,7 @@
                 document.getElementById('adminConfirmPassword').value = '';
                 
                 const successDiv = document.getElementById('adminPasswordResetSuccess');
-                successDiv.innerHTML = `Password reset successfully for ${email}. The user can now login with their new password.`;
+                successDiv.innerHTML = `✅ Password reset successfully for <strong>${email}</strong>.<br>The user can now login with their new password.`;
                 successDiv.classList.remove('hidden');
                 
                 // Auto-hide success message after 10 seconds
@@ -1528,7 +1554,8 @@
                 }, 10000);
                 
             } catch (error) {
-                showError('adminPasswordResetError', error.message);
+                console.error('Frontend: Password reset error:', error); // Debug log
+                showError('adminPasswordResetError', `Error: ${error.message}`);
             }
         }
 
