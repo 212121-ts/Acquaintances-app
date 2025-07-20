@@ -58,9 +58,14 @@ const authenticateToken = (req, res, next) => {
 
 const authenticateAdmin = (req, res, next) => {
   const adminPassword = req.headers['admin-password'];
+  console.log('Admin auth attempt, password provided:', !!adminPassword); // Debug log
+  console.log('Expected admin password:', !!process.env.ADMIN_PASSWORD); // Debug log
+  
   if (adminPassword !== process.env.ADMIN_PASSWORD) {
+    console.log('Admin authentication failed'); // Debug log
     return res.status(401).json({ error: 'Invalid admin password' });
   }
+  console.log('Admin authentication successful'); // Debug log
   next();
 };
 
@@ -300,12 +305,14 @@ app.post('/api/admin/license-keys', authenticateAdmin, async (req, res) => {
   }
 });
 
-// NEW: Get all users (admin only)
+// Get all users (admin only)
 app.get('/api/admin/users', authenticateAdmin, async (req, res) => {
   try {
+    console.log('Fetching all users for admin...'); // Debug log
     const result = await pool.query(
       'SELECT id, email, license_key, created_at FROM users ORDER BY created_at DESC'
     );
+    console.log(`Found ${result.rows.length} users`); // Debug log
     res.json(result.rows);
   } catch (error) {
     console.error('Users fetch error:', error);
@@ -313,46 +320,86 @@ app.get('/api/admin/users', authenticateAdmin, async (req, res) => {
   }
 });
 
-// NEW: Admin password reset route
+// IMPROVED: Admin password reset route with debugging
 app.put('/api/admin/reset-password', authenticateAdmin, async (req, res) => {
   try {
+    console.log('Admin password reset request received'); // Debug log
+    console.log('Request body:', { email: req.body.email, hasPassword: !!req.body.newPassword }); // Debug log
+    
     const { email, newPassword } = req.body;
 
     if (!email || !newPassword) {
+      console.log('Missing required fields'); // Debug log
       return res.status(400).json({ error: 'Email and new password are required' });
     }
 
     if (newPassword.length < 6) {
+      console.log('Password too short'); // Debug log
       return res.status(400).json({ error: 'New password must be at least 6 characters long' });
     }
 
     // Check if user exists
+    console.log('Looking for user with email:', email); // Debug log
     const userResult = await pool.query(
-      'SELECT id, email FROM users WHERE email = $1',
-      [email]
+      'SELECT id, email FROM users WHERE LOWER(email) = LOWER($1)',
+      [email.trim()]
     );
 
     if (userResult.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
+      console.log('User not found for email:', email); // Debug log
+      return res.status(404).json({ error: `User not found with email: ${email}` });
     }
 
+    const user = userResult.rows[0];
+    console.log('Found user:', { id: user.id, email: user.email }); // Debug log
+
     // Hash new password
+    console.log('Hashing new password...'); // Debug log
     const saltRounds = 12;
     const newPasswordHash = await bcrypt.hash(newPassword, saltRounds);
+    console.log('Password hashed successfully'); // Debug log
 
     // Update password in database
-    await pool.query(
-      'UPDATE users SET password_hash = $1 WHERE email = $2',
-      [newPasswordHash, email]
+    console.log('Updating password in database...'); // Debug log
+    const updateResult = await pool.query(
+      'UPDATE users SET password_hash = $1 WHERE id = $2 RETURNING email',
+      [newPasswordHash, user.id]
     );
+
+    if (updateResult.rows.length === 0) {
+      console.log('Failed to update password'); // Debug log
+      return res.status(500).json({ error: 'Failed to update password' });
+    }
+
+    console.log('Password updated successfully for user:', user.email); // Debug log
 
     res.json({ 
       message: 'Password reset successfully',
-      user: { email: userResult.rows[0].email }
+      user: { email: user.email },
+      success: true
     });
   } catch (error) {
     console.error('Admin password reset error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ 
+      error: 'Internal server error',
+      details: error.message 
+    });
+  }
+});
+
+// Test route to verify admin authentication is working
+app.get('/api/admin/test', authenticateAdmin, async (req, res) => {
+  try {
+    console.log('Admin test route accessed successfully');
+    const userCount = await pool.query('SELECT COUNT(*) FROM users');
+    res.json({ 
+      message: 'Admin authentication working',
+      userCount: userCount.rows[0].count,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Admin test error:', error);
+    res.status(500).json({ error: 'Database error' });
   }
 });
 
