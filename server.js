@@ -102,7 +102,6 @@ async function initializeDatabase() {
       )
     `);
 
-    // NEW: Tags table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS tags (
         id SERIAL PRIMARY KEY,
@@ -113,7 +112,6 @@ async function initializeDatabase() {
       )
     `);
 
-    // NEW: Contact-Tag relationship table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS contact_tags (
         contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
@@ -223,7 +221,7 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// NEW: Change password route
+// Change password route
 app.put('/api/change-password', authenticateToken, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
@@ -298,6 +296,62 @@ app.post('/api/admin/license-keys', authenticateAdmin, async (req, res) => {
     res.json({ keys, message: `Generated ${keys.length} license keys` });
   } catch (error) {
     console.error('License key generation error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// NEW: Get all users (admin only)
+app.get('/api/admin/users', authenticateAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT id, email, license_key, created_at FROM users ORDER BY created_at DESC'
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Users fetch error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// NEW: Admin password reset route
+app.put('/api/admin/reset-password', authenticateAdmin, async (req, res) => {
+  try {
+    const { email, newPassword } = req.body;
+
+    if (!email || !newPassword) {
+      return res.status(400).json({ error: 'Email and new password are required' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters long' });
+    }
+
+    // Check if user exists
+    const userResult = await pool.query(
+      'SELECT id, email FROM users WHERE email = $1',
+      [email]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Hash new password
+    const saltRounds = 12;
+    const newPasswordHash = await bcrypt.hash(newPassword, saltRounds);
+
+    // Update password in database
+    await pool.query(
+      'UPDATE users SET password_hash = $1 WHERE email = $2',
+      [newPasswordHash, email]
+    );
+
+    res.json({ 
+      message: 'Password reset successfully',
+      user: { email: userResult.rows[0].email }
+    });
+  } catch (error) {
+    console.error('Admin password reset error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -433,7 +487,7 @@ app.delete('/api/contacts/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// NEW: Tag routes
+// Tag routes
 app.get('/api/tags', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
@@ -470,7 +524,6 @@ app.post('/api/tags', authenticateToken, async (req, res) => {
   }
 });
 
-// NEW: Edit tag route
 app.put('/api/tags/:id', authenticateToken, async (req, res) => {
   try {
     const { name } = req.body;
