@@ -80,6 +80,15 @@
         .network-stats { background: #262626; border: 1px solid #404040; border-radius: 4px; padding: 12px; margin-bottom: 16px; }
         .stat-item { display: flex; justify-content: space-between; margin-bottom: 4px; }
         .tooltip { position: absolute; background: #1a1a1a; border: 1px solid #555; border-radius: 4px; padding: 8px; color: #fff; font-size: 12px; z-index: 1000; pointer-events: none; max-width: 200px; }
+        
+        /* User management styles */
+        .user-card { background: #262626; border: 1px solid #404040; border-radius: 4px; padding: 16px; margin-bottom: 12px; }
+        .user-email { font-size: 16px; color: #fff; margin-bottom: 8px; }
+        .user-info-item { color: #ccc; font-size: 14px; margin-bottom: 4px; }
+        .user-actions { display: flex; gap: 8px; margin-top: 12px; }
+        .btn-reset { background: #4d4d26; }
+        .btn-reset:hover { background: #666633; }
+        .password-display { background: #1a4d1a; color: #99ff99; padding: 8px; border-radius: 4px; margin-top: 8px; font-family: monospace; font-size: 14px; border: 1px solid #2d662d; }
     </style>
 </head>
 <body>
@@ -145,14 +154,55 @@
                     <strong>Admin Dashboard</strong>
                     <button class="btn btn-secondary" onclick="logout()">Logout</button>
                 </div>
-                <h3>Generate License Keys</h3>
-                <div class="form-group">
-                    <label>Number of Keys</label>
-                    <input type="number" id="keyQuantity" value="1" min="1" max="100">
+
+                <div class="nav-tabs" style="margin-bottom: 20px;">
+                    <div class="nav-tab active" onclick="showAdminLicenseKeys()">License Keys</div>
+                    <div class="nav-tab" onclick="showAdminPasswordReset()">Password Reset</div>
                 </div>
-                <button class="btn" onclick="generateKeys()">Generate Keys</button>
-                <h3 style="margin-top: 24px;">License Keys</h3>
-                <div id="licenseKeysList"></div>
+
+                <!-- License Keys Admin Tab -->
+                <div id="adminLicenseKeysTab">
+                    <h3>Generate License Keys</h3>
+                    <div class="form-group">
+                        <label>Number of Keys</label>
+                        <input type="number" id="keyQuantity" value="1" min="1" max="100">
+                    </div>
+                    <button class="btn" onclick="generateKeys()">Generate Keys</button>
+                    <h3 style="margin-top: 24px;">License Keys</h3>
+                    <div id="licenseKeysList"></div>
+                </div>
+
+                <!-- Password Reset Admin Tab -->
+                <div id="adminPasswordResetTab" class="hidden">
+                    <h3>Reset User Password</h3>
+                    
+                    <div id="adminPasswordResetError" class="error hidden"></div>
+                    <div id="adminPasswordResetSuccess" class="hidden" style="background: #1a4d1a; color: #99ff99; padding: 10px; border-radius: 4px; margin-bottom: 16px; border: 1px solid #2d662d;"></div>
+                    
+                    <div class="form-group">
+                        <label>User Email *</label>
+                        <input type="email" id="adminResetEmail" placeholder="Enter user's email address">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>New Password *</label>
+                        <input type="password" id="adminNewPassword" placeholder="Enter new password (min 6 characters)">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Confirm New Password *</label>
+                        <input type="password" id="adminConfirmPassword" placeholder="Confirm new password">
+                    </div>
+                    
+                    <button class="btn" onclick="adminResetPassword()">Reset User Password</button>
+                    <button class="btn btn-secondary" onclick="generateRandomPassword()">Generate Random Password</button>
+                    
+                    <h3 style="margin-top: 32px;">User Management</h3>
+                    <div class="form-group">
+                        <input type="text" id="userSearchInput" placeholder="Search users by email..." onkeyup="searchUsers()">
+                    </div>
+                    <div id="usersList"></div>
+                </div>
             </div>
 
             <!-- Main App -->
@@ -520,6 +570,7 @@
                 sessionStorage.setItem('adminPassword', password);
                 hideAllScreens();
                 document.getElementById('adminDashboard').classList.remove('hidden');
+                showAdminLicenseKeys();
                 loadLicenseKeys();
             } catch (error) {
                 showError('adminError', 'Invalid admin password');
@@ -1301,6 +1352,21 @@
         }
 
         // Admin functions
+        function showAdminLicenseKeys() {
+            document.querySelectorAll('#adminDashboard .nav-tab').forEach(t => t.classList.remove('active'));
+            document.querySelector('#adminDashboard .nav-tab:nth-child(1)').classList.add('active');
+            document.getElementById('adminLicenseKeysTab').classList.remove('hidden');
+            document.getElementById('adminPasswordResetTab').classList.add('hidden');
+        }
+
+        function showAdminPasswordReset() {
+            document.querySelectorAll('#adminDashboard .nav-tab').forEach(t => t.classList.remove('active'));
+            document.querySelector('#adminDashboard .nav-tab:nth-child(2)').classList.add('active');
+            document.getElementById('adminLicenseKeysTab').classList.add('hidden');
+            document.getElementById('adminPasswordResetTab').classList.remove('hidden');
+            loadUsers();
+        }
+
         async function generateKeys() {
             const quantity = parseInt(document.getElementById('keyQuantity').value);
             const adminPassword = sessionStorage.getItem('adminPassword');
@@ -1333,6 +1399,133 @@
                 `).join('');
             } catch (error) {
                 console.error('Failed to load license keys:', error);
+            }
+        }
+
+        // Password Reset Admin Functions
+        async function loadUsers() {
+            try {
+                const users = await apiCall('/admin/users', {
+                    headers: { 'admin-password': sessionStorage.getItem('adminPassword') }
+                });
+                displayUsers(users);
+            } catch (error) {
+                console.error('Failed to load users:', error);
+            }
+        }
+
+        function displayUsers(userList) {
+            const container = document.getElementById('usersList');
+            if (!userList.length) {
+                container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">👤</div><p>No users found.</p></div>';
+                return;
+            }
+            
+            container.innerHTML = userList.map(user => `
+                <div class="user-card">
+                    <div class="user-email">${user.email}</div>
+                    <div class="user-info-item">Created: ${new Date(user.created_at).toLocaleDateString()}</div>
+                    <div class="user-info-item">License: ${user.license_key}</div>
+                    <div class="user-actions">
+                        <button class="btn-small btn-reset" onclick="selectUserForReset('${user.email}')">Reset Password</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function selectUserForReset(email) {
+            document.getElementById('adminResetEmail').value = email;
+            document.getElementById('adminNewPassword').focus();
+        }
+
+        function searchUsers() {
+            // This would be implemented if we had a large user base
+            // For now, we'll just filter the displayed users
+            const query = document.getElementById('userSearchInput').value.toLowerCase();
+            const userCards = document.querySelectorAll('.user-card');
+            
+            userCards.forEach(card => {
+                const email = card.querySelector('.user-email').textContent.toLowerCase();
+                if (email.includes(query)) {
+                    card.style.display = 'block';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        }
+
+        function generateRandomPassword() {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            let password = '';
+            for (let i = 0; i < 12; i++) {
+                password += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            
+            document.getElementById('adminNewPassword').value = password;
+            document.getElementById('adminConfirmPassword').value = password;
+            
+            // Show the generated password
+            const successDiv = document.getElementById('adminPasswordResetSuccess');
+            successDiv.innerHTML = `Generated password: <div class="password-display">${password}</div>Make sure to copy this password and provide it to the user.`;
+            successDiv.classList.remove('hidden');
+            
+            // Auto-hide after 30 seconds
+            setTimeout(() => {
+                successDiv.classList.add('hidden');
+            }, 30000);
+        }
+
+        async function adminResetPassword() {
+            const email = document.getElementById('adminResetEmail').value;
+            const newPassword = document.getElementById('adminNewPassword').value;
+            const confirmPassword = document.getElementById('adminConfirmPassword').value;
+            
+            // Hide any previous messages
+            document.getElementById('adminPasswordResetError').classList.add('hidden');
+            document.getElementById('adminPasswordResetSuccess').classList.add('hidden');
+            
+            // Validation
+            if (!email || !newPassword || !confirmPassword) {
+                showError('adminPasswordResetError', 'All fields are required');
+                return;
+            }
+            
+            if (newPassword.length < 6) {
+                showError('adminPasswordResetError', 'Password must be at least 6 characters long');
+                return;
+            }
+            
+            if (newPassword !== confirmPassword) {
+                showError('adminPasswordResetError', 'Passwords do not match');
+                return;
+            }
+            
+            try {
+                const result = await apiCall('/admin/reset-password', {
+                    method: 'PUT',
+                    headers: { 'admin-password': sessionStorage.getItem('adminPassword') },
+                    body: JSON.stringify({
+                        email,
+                        newPassword
+                    })
+                });
+                
+                // Clear form and show success
+                document.getElementById('adminResetEmail').value = '';
+                document.getElementById('adminNewPassword').value = '';
+                document.getElementById('adminConfirmPassword').value = '';
+                
+                const successDiv = document.getElementById('adminPasswordResetSuccess');
+                successDiv.innerHTML = `Password reset successfully for ${email}. The user can now login with their new password.`;
+                successDiv.classList.remove('hidden');
+                
+                // Auto-hide success message after 10 seconds
+                setTimeout(() => {
+                    successDiv.classList.add('hidden');
+                }, 10000);
+                
+            } catch (error) {
+                showError('adminPasswordResetError', error.message);
             }
         }
 
